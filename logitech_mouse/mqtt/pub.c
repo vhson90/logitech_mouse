@@ -14,6 +14,9 @@ TCP Port: 1883
 #define CLIENTID    "publisher_mouse_driver"
 #define PUB_TOPIC   "mouse_driver/speed_and_accuracy"
 #define DEVICE_PATH "/dev/logitech_mouse"
+#define MAX_EVENTS  10000 // Tương tự MAX_POINTS trong mouse_listener.c
+#define COSINE_TOLERANCE 0.98 // cos(11.5 độ) ~ 0.98
+#define MIN_VECTOR_LENGTH 1.0 // Độ dài vector tối thiểu để tính accuracy
 
 // Cấu trúc dữ liệu sự kiện chuột từ driver
 struct mouse_event {
@@ -40,51 +43,65 @@ void publish(MQTTClient client, char* topic, char* payload) {
     printf("Message '%s' with delivery token %d delivered\n", payload, token);
 }
 
-// Tính khoảng cách Euclidean giữa hai điểm
-double calculate_distance(int x1, int y1, int x2, int y2) {
-    return sqrt(pow(x2 - x1, 2) + pow(y2 - y1, 2));
-}
-
 // Tính tốc độ và độ chính xác từ dữ liệu chuột
 void calculate_speed_and_accuracy(struct mouse_event events[], int count, double* speed, double* accuracy) {
-    double total_distance = 0.0;
-    int direction_changes = 0;
-    int valid_moves = 0;
-
     if (count < 2) {
         *speed = 0.0;
         *accuracy = 0.0;
         return;
     }
 
-    // Tính tổng khoảng cách và thời gian
-    for (int i = 1; i < count; i++) {
-        if (events[i].type == 0 && events[i-1].type == 0) { // Chỉ xét MOVE events
-            total_distance += calculate_distance(events[i-1].x, events[i-1].y, events[i].x, events[i].y);
-            valid_moves++;
+    // Tổng thời gian bao gồm cả điểm cuối (CLICK hoặc WHEEL)
+    double total_time = (double)(events[count - 1].timestamp_sec - events[0].timestamp_sec) +
+                        (double)(events[count - 1].timestamp_nsec - events[0].timestamp_nsec) / 1e9;
+    if (total_time < 1.0 || total_time > 10.0) {
+        *speed = 0.0;
+        *accuracy = 0.0;
+        return;
+    }
 
-            // Kiểm tra thay đổi hướng
-            int dx1 = events[i].x - events[i-1].x;
-            int dy1 = events[i].y - events[i-1].y;
-            if (i > 1) {
-                int dx0 = events[i-1].x - events[i-2].x;
-                int dy0 = events[i-1].y - events[i-2].y;
-                if ((dx1 * dx0 < 0 || dy1 * dy0 < 0) && (dx1 != 0 || dy1 != 0)) {
-                    direction_changes++;
-                }
-            }
+    // Tính tổng khoảng cách (chỉ giữa các MOVE)
+    double total_distance = 0.0;
+    for (int i = 0; i < count - 1; i++) {
+        if (events[i].type == 0 && events[i + 1].type == 0) {
+            double dx = (double)events[i + 1].x;
+            double dy = (double)events[i + 1].y;
+            total_distance += sqrt(dx * dx + dy * dy);
         }
     }
 
-    // Tính thời gian (giây) giữa sự kiện đầu và cuối
-    double time_diff = (events[count-1].timestamp_sec - events[0].timestamp_sec) +
-                      (events[count-1].timestamp_nsec - events[0].timestamp_nsec) / 1e9;
+    *speed = total_distance / total_time;
 
-    // Tính tốc độ
-    *speed = (time_diff > 0 && valid_moves > 0) ? total_distance / time_diff : 0.0;
+    // Tính accuracy dựa trên cosine của góc giữa các đoạn MOVE
+    int eqdir_count = 0;
+    int valid_segments = 0;
+    for (int i = 0; i < count - 2; i++) {
+        if (events[i].type == 0 && events[i + 1].type == 0 && events[i + 2].type == 0) {
+            double dx1 = (double)events[i + 1].x;
+            double dy1 = (double)events[i + 1].y;
+            double dx2 = (double)events[i + 2].x;
+            double dy2 = (double)events[i + 2].y;
 
-    // Tính độ chính xác
-    *accuracy = (valid_moves > 1) ? 1.0 - (double)direction_changes / (valid_moves - 1) : 1.0;
+            // Tính độ dài vector
+            double len1 = sqrt(dx1 * dx1 + dy1 * dy1);
+            double len2 = sqrt(dx2 * dx2 + dy2 * dy2);
+
+            // Chỉ tính nếu cả hai đoạn đủ dài
+            if (len1 >= MIN_VECTOR_LENGTH && len2 >= MIN_VECTOR_LENGTH) {
+                double dot_product = dx1 * dx2 + dy1 * dy2;
+                double cos_theta = dot_product / (len1 * len2);
+
+                if (cos_theta > 1.0) cos_theta = 1.0;
+                if (cos_theta < -1.0) cos_theta = -1.0;
+
+                if (cos_theta >= COSINE_TOLERANCE) {
+                    eqdir_count++;
+                }
+                valid_segments++;
+            }
+        }
+    }
+    *accuracy = (valid_segments > 0) ? (double)eqdir_count / valid_segments : 1.0;
 }
 
 int main(int argc, char* argv[]) {
@@ -107,9 +124,11 @@ int main(int argc, char* argv[]) {
         exit(-1);
     }
 
-    struct mouse_event events[100]; // Buffer lưu tối đa 100 sự kiện
+    struct mouse_event events[MAX_EVENTS];
     int event_count = 0;
     double trajectory_time = 0.0;
+
+    printf("Bắt đầu theo dõi sự kiện chuột và gửi lên MQTT...\n");
 
     while (1) {
         struct mouse_event event;
@@ -119,17 +138,23 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
+        if (event_count >= MAX_EVENTS) {
+            printf("Trajectory quá dài, bỏ qua...\n");
+            event_count = 0;
+            trajectory_time = 0.0;
+        }
+
         events[event_count++] = event;
 
         // Tính thời gian quỹ đạo
         if (event_count > 1) {
-            trajectory_time = (event.timestamp_sec - events[0].timestamp_sec) +
-                             (event.timestamp_nsec - events[0].timestamp_nsec) / 1e9;
+            trajectory_time = (double)(event.timestamp_sec - events[0].timestamp_sec) +
+                              (double)(event.timestamp_nsec - events[0].timestamp_nsec) / 1e9;
         }
 
         // Kết thúc quỹ đạo khi gặp CLICK/WHEEL hoặc thời gian vượt 10s
-        if (event.type != 0 || trajectory_time > 10.0 || event_count >= 100) {
-            if (trajectory_time >= 1.0 && event_count > 1) { // Chỉ xét quỹ đạo từ 1-10s
+        if (event.type == 1 || event.type == 2 || trajectory_time > 10.0) {
+            if (trajectory_time >= 1.0 && trajectory_time <= 10.0 && event_count > 1) { // Chỉ xét quỹ đạo từ 1-10s
                 double speed, accuracy;
                 calculate_speed_and_accuracy(events, event_count, &speed, &accuracy);
 
