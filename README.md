@@ -2,6 +2,11 @@
 
 Dự án này xây dựng hệ thống giám sát hành vi sử dụng chuột máy tính (tốc độ, độ chính xác, số lần click...) để phục vụ nghiên cứu mối liên hệ giữa stress và thao tác chuột, dựa theo bài báo khoa học [PMC8052599](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC8052599/).
 
+## Học viên thực hiện
+
+1. Võ Hoài Sơn - 2390907
+2. Nguyễn Trọng Nhân - 2390904
+
 ## 🎯 Mục tiêu
 
 - Viết **driver kernel** cho chuột USB có dây trên Linux.
@@ -23,4 +28,4 @@ logitech_mouse/
 ---
 
 ## 📹 Video mô tả
-Link: 
+Link: https://youtu.be/3IgUxr1s04s
