@@ -5,6 +5,22 @@ Dự án này xây dựng hệ thống giám sát hành vi sử dụng chuột m
 ## 🎯 Mục tiêu
 
 - Viết **driver kernel** cho chuột USB có dây trên Linux.
-- Thu thập và tính toán các chỉ số như: **vận tốc**, **độ chính xác**, **số lần click**.
+- Thu thập và tính toán các chỉ số như: **vận tốc**, **độ chính xác**
 - Gửi dữ liệu thông qua **MQTT** đến máy chủ.
 - Lưu trữ dữ liệu vào **cơ sở dữ liệu MySQL** để phục vụ phân tích stress.
+
+---
+
+## 📁 Cấu trúc thư mục
+
+logitech_mouse/ 
+├── logitech_mouse.c # Driver chuột USB viết dưới dạng kernel module 
+├── Makefile
+└── mqtt/ 
+    ├── pub.c # Đọc dữ liệu từ driver, tính toán, gửi lên MQTT 
+    └── sub.c # Nhận dữ liệu từ MQTT và lưu vào cơ sở dữ liệu MySQL
+
+---
+
+## 📹 Video mô tả
+Link: 
