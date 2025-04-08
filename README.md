@@ -13,12 +13,12 @@ Dự án này xây dựng hệ thống giám sát hành vi sử dụng chuột m
 
 ## 📁 Cấu trúc thư mục
 
-logitech_mouse/ 
-├── logitech_mouse.c # Driver chuột USB viết dưới dạng kernel module 
-├── Makefile
-└── mqtt/ 
-    ├── pub.c # Đọc dữ liệu từ driver, tính toán, gửi lên MQTT 
-    └── sub.c # Nhận dữ liệu từ MQTT và lưu vào cơ sở dữ liệu MySQL
+logitech_mouse/  
+├── logitech_mouse.c # Driver chuột USB viết dưới dạng kernel module  
+├── Makefile  
+└── mqtt/  
+    ├── pub.c # Đọc dữ liệu từ driver, tính toán, gửi lên MQTT  
+    └── sub.c # Nhận dữ liệu từ MQTT và lưu vào cơ sở dữ liệu MySQL 
 
 ---
 
